@@ -20,34 +20,24 @@ class Marker:
 class CoordinatesSystem:
     fcs_r_vec = None
     fcs_t_vec = None
-    trans_matrix = None
+    rot_matrix = None
     offset = np.zeros(3)
 
     def reset(self, r_vec, t_vec):
         self.fcs_r_vec = r_vec
         self.fcs_t_vec = t_vec
-        self.trans_matrix = self.get_transitional_matrix()
+        self.rot_matrix = self.get_rot_matrix()
         self.offset = -self.get_coordinates_in_cs(t_vec)
 
-    def get_rotation_matrix(self):
-        return cv2.Rodrigues(self.fcs_r_vec)[0]
+    def get_rot_matrix(self):
+        rot_matrix = cv2.Rodrigues(self.fcs_r_vec)[0]
 
-    def get_transitional_matrix(self):
-        trans_matrix = np.eye(4)
-        trans_matrix[0:3, 0:3] = self.get_rotation_matrix().T
-        trans_matrix[0:3, 3] = -self.fcs_t_vec
-        trans_matrix[3, 3] = 1
-        return trans_matrix
-
-    def get_rotations(self):
-        return cv2.RQDecomp3x3(self.get_rotation_matrix())[0]
+        return np.linalg.inv(rot_matrix)
 
     def get_coordinates_in_cs(self, t_vec):
-        camera_coords = np.ones((4, 1))
-        camera_coords[0:3, 0] = t_vec
-        camera_coords[3, 0] = 1
+        new_tv = self.rot_matrix @ (self.fcs_t_vec - t_vec).T
 
-        return self.trans_matrix.dot(camera_coords)[0:3].T[0] + self.offset
+        return new_tv.T[0]
 
 
 class DrawClass:
@@ -104,7 +94,7 @@ def inversePerspective(rvec, tvec):
     return invRvec, invTvec
 
 
-def relativePosition(rvec1, tvec1, rvec2, tvec2):
+def relative_position(rvec1, tvec1, rvec2, tvec2):
     rvec1, tvec1 = rvec1.reshape((3, 1)), tvec1.reshape(
         (3, 1))
     rvec2, tvec2 = rvec2.reshape((3, 1)), tvec2.reshape((3, 1))
@@ -121,6 +111,14 @@ def relativePosition(rvec1, tvec1, rvec2, tvec2):
     composedRvec = composedRvec.reshape((3, 1))
     composedTvec = composedTvec.reshape((3, 1))
     return composedRvec, composedTvec
+
+
+def relative_position2(orig_rv, orig_tv, tv):
+    rot_matrix = cv2.Rodrigues(orig_rv)[0]
+    new_rot_matrix = np.linalg.inv(rot_matrix)
+    new_tv = new_rot_matrix @ (orig_tv - tv).T
+
+    return new_tv.T[0]
 
 
 def main(marker_length, marker_separation):
@@ -166,12 +164,14 @@ def main(marker_length, marker_separation):
             info_screen = dr.print_text(info_screen, markers)
 
             if len(markers) == 2:
-                rv, tv = relativePosition(markers[0].r_vec, markers[0].t_vec, markers[0].r_vec, markers[0].r_vec)
+                # rv, tv = relative_position(markers[0].r_vec, markers[0].t_vec, markers[1].r_vec, markers[1].t_vec)
+                tv = relative_position2(markers[0].r_vec, markers[0].t_vec, markers[1].t_vec)
+                info_screen = dr.draw_debug_lines(info_screen, tv)
                 print(tv)
 
             if len(markers) == 1 and k == ord('p'):
                 cs.reset(markers[0].r_vec, markers[0].t_vec)
-                print(cs.trans_matrix)
+                print(cs.rot_matrix)
 
             if len(markers) == 1 and cs.fcs_r_vec is not None:
                 tv3 = cs.get_coordinates_in_cs(markers[0].t_vec)
